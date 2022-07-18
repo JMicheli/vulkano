@@ -36,7 +36,7 @@ pub struct FractalApp {
     pub place_over_frame: RenderPassPlaceOverFrame,
     /// Toggle that flips between julia and mandelbrot
     pub is_julia: bool,
-    /// Togglet thats stops the movement on Julia
+    /// Toggle thats stops the movement on Julia
     is_c_paused: bool,
     /// C is a constant input to Julia escape time algorithm (mouse position).
     c: Vector2<f32>,
