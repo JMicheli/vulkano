@@ -13,7 +13,7 @@ use vulkano::impl_vertex;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
 pub struct Vertex {
-    position: [f32; 3],
+    pub position: [f32; 3],
 }
 
 impl_vertex!(Vertex, position);
