@@ -7,35 +7,31 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use crate::shaders::{mesh_fragment_shader, mesh_vertex_shader};
+use crate::render_pipeline::RenderPipeline;
+use crate::shaders::mesh_vertex_shader::ty::CameraData;
+use cgmath::{Angle, Deg, Matrix4, Point3, Rad, Vector3};
 use examples::Vertex;
 use image::io::Reader as ImageReader;
-use std::ops::Range;
 use std::sync::Arc;
+use std::time::Instant;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferExecFuture, CommandBufferUsage,
     PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
 };
+use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::Queue;
 use vulkano::format::ClearValue;
-use vulkano::image::view::{ImageView, ImageViewCreateInfo};
-use vulkano::image::{AttachmentImage, ImageDimensions, ImageSubresourceRange, ImmutableImage};
-use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
-use vulkano::pipeline::graphics::rasterization::{CullMode, FrontFace, RasterizationState};
-use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
-use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
-use vulkano::pipeline::GraphicsPipeline;
-use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
+use vulkano::image::view::ImageView;
+use vulkano::image::{AttachmentImage, ImageDimensions, ImmutableImage};
+use vulkano::pipeline::graphics::viewport::Viewport;
+use vulkano::pipeline::{Pipeline, PipelineBindPoint};
+use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass};
 use vulkano::sampler::{Filter, Sampler, SamplerCreateInfo};
 use vulkano::sync::{GpuFuture, NowFuture};
 use vulkano_util::renderer::SwapchainImageView;
 
-// The clear value used for the swapchain image. In a skyboxed scene,
-// this should never be visible, so I've chosen an obnoxious magenta.
-const BACKGROUND_COLOR: [f32; 4] = [1.0, 0.0, 1.0, 1.0];
-
-// We'll yoink this test model data from the examples lib module
+// We'll yoink this test model data from the examples lib module (it's the Utah Teapot)
 use examples::{INDICES as TEST_MODEL_INDICES, VERTICES as TEST_MODEL_VERTICES};
 
 // These are the paths for the skybox textures
@@ -46,17 +42,41 @@ const SKYBOX_RIGHT: &str = "examples/src/bin/cubemap/skybox/right.jpg";
 const SKYBOX_FRONT: &str = "examples/src/bin/cubemap/skybox/front.jpg";
 const SKYBOX_BACK: &str = "examples/src/bin/cubemap/skybox/back.jpg";
 
-/// App for exploring Julia and Mandelbrot fractals
+// These values will be used in the camera
+const CAMERA_ROTATION_SPEED: f32 = 60.0;
+const NEAR_DISTANCE: f32 = 0.01;
+const FIELD_OF_VIEW_ANGLE: f32 = 90.0;
+const FAR_DISTANCE: f32 = 500.0;
+const UP_DIRECTION: Vector3<f32> = Vector3 {
+    x: 0.0,
+    y: -1.0,
+    z: 0.0,
+};
+
+// The clear value used for the swapchain image. In a skyboxed scene,
+// this should never be visible, so I've chosen an obnoxious magenta.
+const BACKGROUND_COLOR: [f32; 4] = [1.0, 0.0, 1.0, 1.0];
+
+/// App for displaying a skyboxed scene
 pub struct CubeMapApp {
+    // Vulkano members
     gfx_queue: Arc<Queue>,
-    render_pipeline: Arc<GraphicsPipeline>,
+    render_pipeline: RenderPipeline,
     render_pass: Arc<RenderPass>,
     framebuffer: Option<Arc<Framebuffer>>,
 
+    // Render asset data
     test_model: Model,
     camera: Camera,
     skybox: Skybox,
     skybox_upload_future: Option<Box<dyn GpuFuture>>,
+
+    /// Time tracking, useful for frame independent movement
+    time: Instant,
+    dt: f32,
+    dt_sum: f32,
+    frame_count: f32,
+    avg_fps: f32,
 }
 
 impl CubeMapApp {
@@ -87,10 +107,10 @@ impl CubeMapApp {
         .unwrap();
 
         // Pipeline
-        let render_pipeline = Self::create_render_pipeline(&gfx_queue, &render_pass);
+        let render_pipeline = RenderPipeline::new(&gfx_queue, &render_pass);
 
         // Set up scene resources
-        let test_model = Model::cube(&gfx_queue);
+        let test_model = Model::teapot(&gfx_queue);
         let camera = Camera::default();
         let (skybox, skybox_upload_future) = Skybox::new(&gfx_queue);
 
@@ -104,6 +124,12 @@ impl CubeMapApp {
             camera,
             skybox,
             skybox_upload_future: Some(skybox_upload_future.boxed()),
+
+            time: Instant::now(),
+            dt: 0.0,
+            dt_sum: 0.0,
+            frame_count: 0.0,
+            avg_fps: 0.0,
         }
     }
 
@@ -146,10 +172,30 @@ impl CubeMapApp {
             }],
         );
 
+        // We need to generate a descriptor set pointing to a buffer with camera data in it
+        let camera_data_buffer = self.camera.get_uniforms(&self.gfx_queue);
+        let camera_descriptor_set = PersistentDescriptorSet::new(
+            self.render_pipeline
+                .pipeline
+                .layout()
+                .set_layouts()
+                .get(0)
+                .unwrap()
+                .clone(),
+            [WriteDescriptorSet::buffer(0, camera_data_buffer)],
+        )
+        .unwrap();
+
         // Let's render the test model
         cb_builder
             // First we need to bind the mesh drawing pipeline
-            .bind_pipeline_graphics(self.render_pipeline.clone())
+            .bind_pipeline_graphics(self.render_pipeline.pipeline.clone())
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                self.render_pipeline.pipeline.layout().clone(),
+                0,
+                camera_descriptor_set,
+            )
             // Then we bind the vertex and index buffers for the test model
             .bind_vertex_buffers(0, self.test_model.vertex_buffer.clone())
             .bind_index_buffer(self.test_model.index_buffer.clone())
@@ -169,7 +215,7 @@ impl CubeMapApp {
             Some(future) => before_future.join(future).boxed(),
             None => before_future,
         };
-        // We'll also take the opportunity to clean up any finished
+        // We'll also take the opportunity to clean up any finished futures
         pre_exec_future.cleanup_finished();
 
         // Execute after before_future and return the new future
@@ -201,47 +247,241 @@ impl CubeMapApp {
         self.framebuffer = Some(framebuffer);
     }
 
-    fn create_render_pipeline(
+    /// Update times and dt at the end of each frame and move the camera
+    pub fn update(&mut self) {
+        // Each second, update average fps & reset frame count & dt sum
+        if self.dt_sum > 1.0 {
+            self.avg_fps = self.frame_count / self.dt_sum;
+            self.frame_count = 0.0;
+            self.dt_sum = 0.0;
+        }
+        self.dt = self.time.elapsed().as_secs_f32();
+        self.dt_sum += self.dt;
+        self.frame_count += 1.0;
+        self.time = Instant::now();
+
+        // Move the camera
+        self.camera.phi += self.dt * CAMERA_ROTATION_SPEED;
+    }
+
+    /// Return average fps
+    pub fn avg_fps(&self) -> f32 {
+        self.avg_fps
+    }
+
+    /// Delta time in milliseconds
+    pub fn dt(&self) -> f32 {
+        self.dt * 1000.0
+    }
+
+    pub fn update_aspect_ratio(&mut self, aspect_ratio: f32) {
+        self.camera.set_aspect_ratio(aspect_ratio);
+    }
+}
+
+/// A struct to hold parameters for the scene's camera.
+/// It models a spherical camera that points inward at its `position`,
+/// at a distance of `r`, and with `theta` and `phi` rotations.
+struct Camera {
+    /// The `[x, y, z]` center of the spherical camera
+    center: Point3<f32>,
+
+    /// The distance of the camera from its center
+    r: f32,
+    /// The rotation of the camera around its equator in degrees.
+    theta: f32,
+    /// The rotation of the camera between its poles, in degrees.
+    phi: f32,
+
+    /// The aspect ratio of the camera. It'll need to be set externally.
+    pub aspect_ratio: f32,
+}
+
+impl Camera {
+    pub fn new(center: Point3<f32>, r: f32, theta: f32, phi: f32) -> Self {
+        Self {
+            center,
+            r,
+            theta,
+            phi,
+
+            aspect_ratio: 1.0,
+        }
+    }
+
+    pub fn set_aspect_ratio(&mut self, aspect_ratio: f32) {
+        self.aspect_ratio = aspect_ratio;
+    }
+
+    pub fn get_uniforms(&self, gfx_queue: &Arc<Queue>) -> Arc<CpuAccessibleBuffer<CameraData>> {
+        let camera_data = CameraData {
+            position: self.camera_position().into(),
+            _dummy0: [0; 4],
+            view: self.view_matrix().into(),
+            proj: self.projection_matrix().into(),
+        };
+
+        CpuAccessibleBuffer::from_data(
+            gfx_queue.device().clone(),
+            BufferUsage::storage_buffer(),
+            false,
+            camera_data,
+        )
+        .unwrap()
+    }
+
+    fn camera_position(&self) -> Point3<f32> {
+        // We'll convert our spherical coordinate angles to radians
+        let theta_rad = Rad::from(Deg(self.theta));
+        let phi_rad = Rad::from(Deg(self.phi));
+
+        // And compute the cartesian equivalent positions
+        let spherical_x = self.r * Rad::sin(phi_rad) * Rad::cos(theta_rad);
+        let spherical_y = self.r * Rad::sin(phi_rad) * Rad::sin(theta_rad);
+        let spherical_z = self.r * Rad::cos(phi_rad);
+
+        let camera_position = [
+            self.center.x + spherical_x,
+            self.center.y + spherical_y,
+            self.center.z + spherical_z,
+        ];
+
+        Point3::from(camera_position)
+    }
+
+    fn view_matrix(&self) -> Matrix4<f32> {
+        Matrix4::look_at_rh(self.camera_position(), self.center, UP_DIRECTION)
+    }
+
+    fn projection_matrix(&self) -> Matrix4<f32> {
+        cgmath::perspective(
+            Rad::from(Deg(FIELD_OF_VIEW_ANGLE)),
+            self.aspect_ratio,
+            NEAR_DISTANCE,
+            FAR_DISTANCE,
+        )
+    }
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Self::new(
+            Point3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            100.0, // The Utah Teapot is really big!
+            45.0,
+            45.0,
+        )
+    }
+}
+
+struct Skybox {
+    pub cube_mesh: Model,
+    pub cube_map: Arc<ImageView<ImmutableImage>>,
+    pub cube_sampler: Arc<Sampler>,
+}
+
+impl Skybox {
+    pub fn new(
         gfx_queue: &Arc<Queue>,
-        render_pass: &Arc<RenderPass>,
-    ) -> Arc<GraphicsPipeline> {
-        GraphicsPipeline::start()
-            // We set the subpass to use for this pipeline
-            .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-            // We set the input state - what an input vertex will look like to the pipeline
-            .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
-            // We link a vertex shader which will run for each vertex
-            .vertex_shader(
-                // The vertex shader module contains a load function to upload it to the GPU
-                mesh_vertex_shader::load(gfx_queue.device().clone())
-                    .unwrap()
-                    .entry_point("main")
-                    .unwrap(),
-                (),
-            )
-            // // We set the rasterizer state for backface culling.
-            // .rasterization_state(
-            //     RasterizationState::new()
-            //         // The rasterizer will treat clockwise-wound triangles as front-facing...
-            //         .front_face(FrontFace::CounterClockwise)
-            //         // ...and cull (not execute the fragment shader for) back-facing triangles
-            //         .cull_mode(CullMode::Back),
-            // )
-            // We'll use a simple depth test to ensure correct order of fragments
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
-            // Use a resizable viewport set to draw over the entire window
-            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            // We link the fragment shader which will run for each fragment (output pixel)
-            .fragment_shader(
-                mesh_fragment_shader::load(gfx_queue.device().clone())
-                    .unwrap()
-                    .entry_point("main")
-                    .unwrap(),
-                (),
-            )
-            // We call build() to create the pipeline object and return a handle
-            .build(gfx_queue.device().clone())
-            .unwrap()
+    ) -> (
+        Self,
+        CommandBufferExecFuture<NowFuture, PrimaryAutoCommandBuffer>,
+    ) {
+        let cube_mesh = Model::cube(gfx_queue);
+        // We need to load the data from each texture representing one of the six faces
+        // of the cubemap. I think the order of data matters here, and I am basing it on
+        // the table from https://www.khronos.org/opengl/wiki/Cubemap_Texture#Upload_and_orientation
+        // TODO revise when you're sure
+        let cube_map_data: Vec<u8> = [
+            SKYBOX_RIGHT,  // POSITIVE_X
+            SKYBOX_LEFT,   // NEGATIVE_X
+            SKYBOX_TOP,    // POSITIVE_Y
+            SKYBOX_BOTTOM, // NEGATIVE_Y
+            SKYBOX_FRONT,  // POSITIVE_Z
+            SKYBOX_BACK,   // NEGATIVE_Z
+        ]
+        .into_iter()
+        // Note the use of flat_map, even though we have 6 images, they will be sent as a single sequence
+        // of u8s. Vulkan will differentiate the images using the dimensions and format data we pass.
+        .flat_map(|path| {
+            // We load the image using the image crate
+            let image = ImageReader::open(path).unwrap().decode().unwrap();
+            // Then we get a vector containing width * height sets of rgb u8s
+            let image_data = image.as_rgb8().unwrap().as_raw().to_owned();
+
+            // On most graphics hardware, SRGB images aren't supported, they want SRGBA.
+            // So we'll convert the RGB of the images to RGBA by pushing a maximum alpha
+            // value every 3 u8s, i.e., every unit of rgb color data.
+            let mut actual_data =
+                Vec::<u8>::with_capacity((image.width() * image.height() * 4) as usize);
+            for rgb_index in 0..(image_data.len() / 3) {
+                actual_data.push(image_data[rgb_index]); // R
+                actual_data.push(image_data[rgb_index + 1]); // G
+                actual_data.push(image_data[rgb_index + 2]); // B
+                actual_data.push(255); // A
+            }
+
+            // The image data is returned
+            actual_data
+        })
+        .collect();
+
+        // We'll reopen the first image to read its info
+        let image = ImageReader::open(SKYBOX_RIGHT).unwrap().decode().unwrap();
+
+        // This is uploaded to the GPU as an ImmutableImage, because we won't be writing to it at any point.
+        // Internally, this function writes to a transfer buffer and then executes a command to move the transfer
+        // data to the final image location, so it returns the ImmutableImage and a CommandBufferExecFuture
+        // representing the moment that the image becomes available for use.
+        let (cube_map_image, upload_future) = ImmutableImage::from_iter(
+            cube_map_data,
+            ImageDimensions::Dim2d {
+                width: image.width(),
+                height: image.height(),
+                array_layers: 6, // 6 layers, one for each face
+            },
+            vulkano::image::MipmapsCount::One,
+            vulkano::format::Format::R8G8B8A8_SRGB,
+            gfx_queue.clone(),
+        )
+        .unwrap();
+
+        // We create the cubemap image view, we need to fill the ImageViewCreateInfo
+        // manually, as the default is made for standard textures.
+        let cube_map = ImageView::new_default(cube_map_image).unwrap();
+        // let cube_map = ImageView::new(
+        //     cube_map_image,
+        //     ImageViewCreateInfo {
+        //         view_type: vulkano::image::view::ImageViewType::Cube,
+        //         format: Some(vulkano::format::Format::R8G8B8_SRGB),
+        //         ..Default::default()
+        //     },
+        // )
+        // .unwrap();
+
+        // We will also create a sampler for sampling the cubemap
+        let cube_sampler = Sampler::new(
+            gfx_queue.device().clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Linear,
+                min_filter: Filter::Linear,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        (
+            Self {
+                cube_mesh,
+                cube_map,
+                cube_sampler,
+            },
+            upload_future,
+        )
     }
 }
 
@@ -298,125 +538,6 @@ impl Model {
             index_buffer,
             index_count: CUBE_MODEL_INDICES.len() as u32,
         }
-    }
-}
-
-struct Camera {
-    r: f32,
-    theta: f32,
-    phi: f32,
-}
-
-impl Camera {
-    pub fn new(r: f32, theta: f32, phi: f32) -> Self {
-        Self { r, theta, phi }
-    }
-}
-
-impl Default for Camera {
-    fn default() -> Self {
-        Self::new(1.0, 45.0, 45.0)
-    }
-}
-
-struct Skybox {
-    pub cube_map: Arc<ImageView<ImmutableImage>>,
-    pub cube_sampler: Arc<Sampler>,
-}
-
-impl Skybox {
-    pub fn new(
-        gfx_queue: &Arc<Queue>,
-    ) -> (
-        Self,
-        CommandBufferExecFuture<NowFuture, PrimaryAutoCommandBuffer>,
-    ) {
-        // We need to load the data from each texture representing one of the six faces
-        // of the cubemap. I think the order of data matters here, and I am basing it on
-        // the table from https://www.khronos.org/opengl/wiki/Cubemap_Texture#Upload_and_orientation
-        let cube_map_data: Vec<u8> = [
-            SKYBOX_RIGHT,  // POSITIVE_X
-            SKYBOX_LEFT,   // NEGATIVE_X
-            SKYBOX_TOP,    // POSITIVE_Y
-            SKYBOX_BOTTOM, // NEGATIVE_Y
-            SKYBOX_FRONT,  // POSITIVE_Z
-            SKYBOX_BACK,   // NEGATIVE_Z
-        ]
-        .into_iter()
-        // Note the use of flat_map, even though we have 6 images, they will be sent as a single sequence
-        // of u8s. Vulkan will differentiate the images using the dimensions and format data we pass.
-        .flat_map(|path| {
-            // We load the image using the image crate
-            let image = ImageReader::open(path).unwrap().decode().unwrap();
-            // Then we get a vector containing width * height sets of rgb u8s
-            let image_data = image.as_rgb8().unwrap().as_raw().to_owned();
-
-            // This is some bullshit and needs to be removed from the final
-            let mut actual_data =
-                Vec::<u8>::with_capacity((image.width() * image.height() * 4) as usize);
-            for rgb_index in 0..(image_data.len() / 3) {
-                actual_data.push(image_data[rgb_index]); // R
-                actual_data.push(image_data[rgb_index + 1]); // G
-                actual_data.push(image_data[rgb_index + 2]); // B
-                actual_data.push(255); // A
-            }
-
-            // The image data is returned
-            actual_data
-        })
-        .collect();
-
-        // We'll reopen the first image to read its info
-        let image = ImageReader::open(SKYBOX_RIGHT).unwrap().decode().unwrap();
-
-        // This is uploaded to the GPU as an ImmutableImage, because we won't be writing it at any point.
-        // Internally, this writes to a transfer buffer and then executes a command to move the transfer
-        // data to the final image location, so it returns the ImmutableImage and a CommandBufferExecFuture
-        // representing the moment that the image becomes available for use.
-        let (cube_map_image, upload_future) = ImmutableImage::from_iter(
-            cube_map_data,
-            ImageDimensions::Dim2d {
-                width: image.width(),
-                height: image.height(),
-                array_layers: 6, // 6 layers, one for each face
-            },
-            vulkano::image::MipmapsCount::One,
-            vulkano::format::Format::R8G8B8A8_SRGB,
-            gfx_queue.clone(),
-        )
-        .unwrap();
-
-        // We create the cubemap image view, we need to fill the ImageViewCreateInfo
-        // manually, as the default is made for standard textures.
-        let cube_map = ImageView::new_default(cube_map_image).unwrap();
-        // let cube_map = ImageView::new(
-        //     cube_map_image,
-        //     ImageViewCreateInfo {
-        //         view_type: vulkano::image::view::ImageViewType::Cube,
-        //         format: Some(vulkano::format::Format::R8G8B8_SRGB),
-        //         ..Default::default()
-        //     },
-        // )
-        // .unwrap();
-
-        // We will also create a sampler for sampling the cubemap
-        let cube_sampler = Sampler::new(
-            gfx_queue.device().clone(),
-            SamplerCreateInfo {
-                mag_filter: Filter::Linear,
-                min_filter: Filter::Linear,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-
-        (
-            Self {
-                cube_map,
-                cube_sampler,
-            },
-            upload_future,
-        )
     }
 }
 

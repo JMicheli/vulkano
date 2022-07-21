@@ -8,6 +8,7 @@
 // according to those terms.
 
 mod app;
+mod render_pipeline;
 mod shaders;
 
 use crate::app::CubeMapApp;
@@ -40,7 +41,7 @@ fn main() {
         &event_loop,
         &context,
         &WindowDescriptor {
-            title: "Cubemap".to_string(),
+            title: "Cubemap (loading textures)".to_string(),
             present_mode: PresentMode::Immediate,
             ..Default::default()
         },
@@ -74,7 +75,12 @@ fn main() {
             }
         }
 
+        app.update_aspect_ratio(primary_window_renderer.aspect_ratio());
         render(primary_window_renderer, &mut app);
+        app.update();
+        primary_window_renderer
+            .window()
+            .set_title(&format!("Cubemap - fps: {:.2}", app.avg_fps(),));
     }
 }
 
