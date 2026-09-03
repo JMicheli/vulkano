@@ -385,6 +385,7 @@ impl ApplicationHandler for App {
         //
         // A more detailed overview of what the `shader!` macro generates can be found in the
         // vulkano-shaders crate docs. You can view them at https://docs.rs/vulkano-shaders/
+        #[cfg(not(feature = "use-slang"))]
         mod vs {
             vulkano_shaders::shader! {
                 ty: "vertex",
@@ -399,7 +400,24 @@ impl ApplicationHandler for App {
                 ",
             }
         }
+        // Vulkano also supports the use of Slang if `lang: "slang"` is set.
+        // Slang code must have an entrypoint named `main`.  
+        #[cfg(feature = "use-slang")]
+        mod vs {
+            vulkano_shaders::shader! {
+                ty: "vertex",
+                lang: "slang",
+                src: r#"
+                    [shader("vertex")]
+                    float4 main(float2 position) : SV_Position {
+                        return float4(position, 0.0, 1.0);
+                    }
+                "#,
+            }
+        }
 
+
+        #[cfg(not(feature = "use-slang"))]
         mod fs {
             vulkano_shaders::shader! {
                 ty: "fragment",
@@ -414,6 +432,20 @@ impl ApplicationHandler for App {
                 ",
             }
         }
+        #[cfg(feature = "use-slang")]
+        mod fs {
+            vulkano_shaders::shader! {
+                ty: "fragment",
+                lang: "slang",
+                src: r#"
+                    [shader("fragment")]
+                    float4 main() : SV_Target0 {
+                        return float4(1.0, 0.0, 0.0, 1.0);
+                    }
+                "#,
+            }
+        }
+
 
         // Before we draw, we have to create what is called a **pipeline**. A pipeline describes
         // how a GPU operation is to be performed. It is similar to an OpenGL program, but it also

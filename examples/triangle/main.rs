@@ -715,6 +715,7 @@ impl TriangleTask {
         //
         // A more detailed overview of what the `shader!` macro generates can be found in the
         // vulkano-shaders crate docs. You can view them at https://docs.rs/vulkano-shaders/
+        #[cfg(not(feature = "use-slang"))]
         mod vs {
             vulkano_shaders::shader! {
                 ty: "vertex",
@@ -729,7 +730,23 @@ impl TriangleTask {
                 ",
             }
         }
+        // Vulkano also supports the use of Slang if `lang: "slang"` is set.
+        // Slang code must have an entrypoint named `main`.  
+        #[cfg(feature = "use-slang")]
+        mod vs {
+            vulkano_shaders::shader! {
+                ty: "vertex",
+                lang: "slang",
+                src: r#"
+                    [shader("vertex")]
+                    float4 main(float2 position) : SV_Position {
+                        return float4(position, 0.0, 1.0);
+                    }
+                "#,
+            }
+        }
 
+        #[cfg(not(feature = "use-slang"))]
         mod fs {
             vulkano_shaders::shader! {
                 ty: "fragment",
@@ -742,6 +759,19 @@ impl TriangleTask {
                         f_color = vec4(251.0 / 255.0, 113.0 / 255.0, 133.0 / 255.0, 1.0);
                     }
                 ",
+            }
+        }
+        #[cfg(feature = "use-slang")]
+        mod fs {
+            vulkano_shaders::shader! {
+                ty: "fragment",
+                lang: "slang",
+                src: r#"
+                    [shader("fragment")]
+                    float4 main() : SV_Target0 {
+                        return float4(251.0 / 255.0, 113.0 / 255.0, 133.0 / 255.0, 1.0);
+                    }
+                "#,
             }
         }
 
