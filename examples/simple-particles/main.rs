@@ -365,6 +365,7 @@ impl ApplicationHandler for App {
 
         // The vertex shader determines color and is run once per particle. The vertices will be
         // updated by the compute shader each frame.
+        #[cfg(not(feature = "use-slang"))]
         mod vs {
             vulkano_shaders::shader! {
                 ty: "vertex",
@@ -394,22 +395,73 @@ impl ApplicationHandler for App {
             }
         }
 
+        #[cfg(feature = "use-slang")]
+        mod vs {
+            vulkano_shaders::shader! {
+                ty: "vertex",
+                lang: "slang",
+                src: r#"
+                    struct VSOutput {
+                        float4 position : SV_Position;
+                        float pointSize : SV_PointSize;
+                        float4 outColor;
+                    };
+
+                    // Keep this value in sync with the `maxSpeed` const in the compute shader.
+                    static const float maxSpeed = 10.0;
+
+                    [shader("vertex")]
+                    VSOutput main(float2 pos, float2 vel) {
+                        VSOutput output;
+                                
+                        output.position = float4(pos, 0.0, 1.0);
+                        output.pointSize = 1.0;
+
+                        // Mix colors based on position and velocity.
+                        output.outColor = lerp(
+                            0.2 * float4(pos, abs(vel.x) + abs(vel.y), 1.0),
+                            float4(1.0, 0.5, 0.8, 1.0),
+                            sqrt(length(vel) / maxSpeed)
+                        );
+
+                        return output;
+                    }
+                "#,
+            }
+        }
+
+
         // The fragment shader will only need to apply the color forwarded by the vertex shader,
         // because the color of a particle should be identical over all pixels.
+        #[cfg(not(feature = "use-slang"))]
         mod fs {
             vulkano_shaders::shader! {
                 ty: "fragment",
                 src: r"
-                    #version 450
-
-                    layout(location = 0) in vec4 outColor;
-
+                #version 450
+                
+                layout(location = 0) in vec4 outColor;
+                
                     layout(location = 0) out vec4 fragColor;
-
+                    
                     void main() {
                         fragColor = outColor;
+                        }
+                        ",
                     }
-                ",
+                }
+                
+        #[cfg(feature = "use-slang")]
+        mod fs {
+            vulkano_shaders::shader! {
+                ty: "fragment",
+                lang: "slang",
+                src: r#"
+                    [shader("fragment")]
+                    float4 main(float4 outColor) {
+                        return outColor;
+                    }
+                "#,
             }
         }
 
@@ -510,7 +562,14 @@ impl ApplicationHandler for App {
                 rcx.last_frame_time = now;
 
                 // Create push constants to be passed to compute shader.
+                #[cfg(not(feature = "use-slang"))]
                 let push_constants = cs::PushConstants {
+                    attractor: [0.75 * (3. * time).cos(), 0.6 * (0.75 * time).sin()],
+                    attractor_strength: 1.2 * (2. * time).cos(),
+                    delta_time,
+                };
+                #[cfg(feature = "use-slang")]
+                let push_constants = cs::PushConstants_std430 {
                     attractor: [0.75 * (3. * time).cos(), 0.6 * (0.75 * time).sin()],
                     attractor_strength: 1.2 * (2. * time).cos(),
                     delta_time,
@@ -616,6 +675,7 @@ struct MyVertex {
 }
 
 // Compute shader for updating the position and velocity of each particle every frame.
+#[cfg(not(feature = "use-slang"))]
 mod cs {
     vulkano_shaders::shader! {
         ty: "compute",
@@ -685,5 +745,78 @@ mod cs {
                 vertices[index].vel = vel * exp(friction * push.delta_time);
             }
         ",
+    }
+}
+
+#[cfg(feature = "use-slang")]
+mod cs {
+    vulkano_shaders::shader! {
+        ty: "compute",
+        lang: "slang",
+        src: r#"
+            struct VertexData {
+                float2 pos;
+                float2 vel;
+            };
+
+            struct PushConstants {
+                float2 attractor;
+                float attractor_strength;
+                float delta_time;
+            };
+
+            // Storage buffer binding, which we optimize by using a DeviceLocalBuffer.
+            [[vk::binding(0, 0)]]
+            RWStructuredBuffer<VertexData> vertices;
+
+            [[vk::push_constant]]
+            ConstantBuffer<PushConstants> push;
+
+            // Keep this value in sync with the `maxSpeed` const in the vertex shader.
+            static const float maxSpeed = 10.0;
+
+            static const float minLength = 0.02;
+            static const float friction = -2.0;
+
+            [shader("compute")]
+            [numthreads(128, 1, 1)]
+            void main(uint3 thread_id : SV_DispatchThreadID) {
+                const uint index = thread_id.x;
+
+                float2 vel = vertices[index].vel;
+
+                // Update particle position according to velocity.
+                float2 pos = vertices[index].pos + push.delta_time * vel;
+
+                // Bounce particle off screen-border.
+                if (abs(pos.x) > 1.0) {
+                    vel.x = sign(pos.x) * (-0.95 * abs(vel.x) - 0.0001);
+                    if (abs(pos.x) >= 1.05) {
+                        pos.x = sign(pos.x);
+                    }
+                }
+                if (abs(pos.y) > 1.0) {
+                    vel.y = sign(pos.y) * (-0.95 * abs(vel.y) - 0.0001);
+                    if (abs(pos.y) >= 1.05) {
+                        pos.y = sign(pos.y);
+                    }
+                }
+
+                // Simple inverse-square force.
+                float2 t = push.attractor - pos;
+                float r = max(length(t), minLength);
+                float2 force = push.attractor_strength * (t / r) / (r * r);
+
+                // Update velocity, enforcing a maximum speed.
+                vel += push.delta_time * force;
+                if (length(vel) > maxSpeed) {
+                    vel = maxSpeed*normalize(vel);
+                }
+
+                // Set new values back into buffer.
+                vertices[index].pos = pos;
+                vertices[index].vel = vel * exp(friction * push.delta_time);
+            }
+        "#,
     }
 }
