@@ -1,45 +1,20 @@
 use std::{error::Error, sync::Arc};
 use vulkano::{
-    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer},
-    command_buffer::{
-        allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
-        CopyBufferToImageInfo, PrimaryCommandBufferAbstract, RenderPassBeginInfo,
-    },
-    descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, DescriptorImageInfo, DescriptorSet,
-        WriteDescriptorSet,
-    },
-    device::{
-        physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, Queue,
-        QueueCreateInfo, QueueFlags,
-    },
-    format::Format,
-    image::{
-        sampler::{Sampler, SamplerCreateInfo},
-        view::ImageView,
-        Image, ImageCreateInfo, ImageType, ImageUsage,
-    },
-    instance::{Instance, InstanceCreateFlags, InstanceCreateInfo},
-    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
-    pipeline::{
-        graphics::{
-            color_blend::{AttachmentBlend, ColorBlendAttachmentState, ColorBlendState},
-            input_assembly::{InputAssemblyState, PrimitiveTopology},
-            multisample::MultisampleState,
-            rasterization::RasterizationState,
-            vertex_input::{Vertex, VertexDefinition},
-            viewport::{Viewport, ViewportState},
-            GraphicsPipelineCreateInfo,
+    DeviceSize, Validated, VulkanError, VulkanLibrary, buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage, Subbuffer}, command_buffer::{
+        AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferToImageInfo, PrimaryCommandBufferAbstract, RenderPassBeginInfo, allocator::StandardCommandBufferAllocator,
+    }, descriptor_set::{
+        DescriptorImageInfo, DescriptorSet, WriteDescriptorSet, allocator::StandardDescriptorSetAllocator,
+    }, device::{
+        Device, DeviceCreateInfo, DeviceExtensions, DeviceFeatures, Queue, QueueCreateInfo, QueueFlags, physical::PhysicalDeviceType,
+    }, format::Format, image::{
+        Image, ImageCreateInfo, ImageType, ImageUsage, sampler::{Sampler, SamplerCreateInfo}, view::ImageView,
+    }, instance::{Instance, InstanceCreateFlags, InstanceCreateInfo}, memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator}, pipeline::{
+        DynamicState, GraphicsPipeline, PipelineBindPoint, PipelineLayout, PipelineShaderStageCreateInfo, graphics::{
+            GraphicsPipelineCreateInfo, color_blend::{AttachmentBlend, ColorBlendAttachmentState, ColorBlendState}, input_assembly::{InputAssemblyState, PrimitiveTopology}, multisample::MultisampleState, rasterization::RasterizationState, vertex_input::{Vertex, VertexDefinition}, viewport::{Viewport, ViewportState},
         },
-        DynamicState, GraphicsPipeline, PipelineBindPoint, PipelineLayout,
-        PipelineShaderStageCreateInfo,
-    },
-    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    swapchain::{
-        acquire_next_image, Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo,
-    },
-    sync::{self, GpuFuture},
-    DeviceSize, Validated, VulkanError, VulkanLibrary,
+    }, render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass}, swapchain::{
+        Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo, acquire_next_image,
+    }, sync::{self, GpuFuture},
 };
 use winit::{
     application::ApplicationHandler,
@@ -100,6 +75,7 @@ impl App {
 
         let device_extensions = DeviceExtensions {
             khr_swapchain: true,
+            khr_shader_draw_parameters: true,
             ..DeviceExtensions::empty()
         };
         let (physical_device, queue_family_index) = instance
@@ -136,6 +112,11 @@ impl App {
             &physical_device,
             &DeviceCreateInfo {
                 enabled_extensions: &device_extensions,
+                enabled_features: &DeviceFeatures {
+                    #[cfg(feature = "use-slang")]
+                    geometry_shader: true,
+                    ..Default::default()
+                },
                 queue_create_infos: &[QueueCreateInfo {
                     queue_family_index,
                     ..Default::default()
@@ -585,28 +566,59 @@ fn window_size_dependent_setup(
         .collect::<Vec<_>>()
 }
 
+
+#[cfg(not(feature = "use-slang"))]
 mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
         src: r"
-            #version 450
-
-            layout(location = 0) in vec2 position;
-            layout(location = 0) out vec2 tex_coords;
-            layout(location = 1) out uint layer;
-
-            const float x[4] = float[](0.0, 0.0, 1.0, 1.0);
-            const float y[4] = float[](0.0, 1.0, 0.0, 1.0);
-
-            void main() {
-                gl_Position = vec4(position, 0.0, 1.0);
-                tex_coords = vec2(x[gl_VertexIndex], y[gl_VertexIndex]);
-                layer = gl_InstanceIndex;
-            }
+        #version 450
+        
+        layout(location = 0) in vec2 position;
+        layout(location = 0) out vec2 tex_coords;
+        layout(location = 1) out uint layer;
+        
+        const float x[4] = float[](0.0, 0.0, 1.0, 1.0);
+        const float y[4] = float[](0.0, 1.0, 0.0, 1.0);
+        
+        void main() {
+            gl_Position = vec4(position, 0.0, 1.0);
+            tex_coords = vec2(x[gl_VertexIndex], y[gl_VertexIndex]);
+            layer = gl_InstanceIndex;
+        }
         ",
     }
 }
+#[cfg(feature = "use-slang")]
+mod vs {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        lang: "slang",
+        src: r#"
+            struct VSOutput {
+                float4 position : SV_Position;
+                float2 tex_coords : TEXCOORD0;
+                int layer : SV_RenderTargetArrayIndex;
+            };
 
+            static const float x[4] = float[](0.0, 0.0, 1.0, 1.0);
+            static const float y[4] = float[](0.0, 1.0, 0.0, 1.0);
+
+            [shader("vertex")]
+            VSOutput main(float2 position : POSITION, int v_idx : SV_VertexID, int i_id : SV_InstanceID) {
+                VSOutput output;
+
+                output.position = float4(position, 0.0, 1.0);
+                output.tex_coords = float2(x[v_idx], y[v_idx]);
+                output.layer = i_id;
+
+                return output;
+            }
+        "#,
+    }
+}
+
+#[cfg(not(feature = "use-slang"))]
 mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
@@ -624,5 +636,27 @@ mod fs {
                 f_color = texture(sampler2DArray(tex, s), vec3(tex_coords, layer));
             }
         ",
+    }
+}
+#[cfg(feature = "use-slang")]
+mod fs {
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        lang: "slang",
+        src: r#"
+            struct VSOutput {
+                float4 position : SV_Position;
+                float2 tex_coords : TEXCOORD0;
+                int layer : SV_RenderTargetArrayIndex;
+            };
+
+            SamplerState s;
+            Texture2DArray tex;
+
+            [shader("fragment")]
+            float4 main(VSOutput input) : SV_Target {
+                return tex.Sample(s, float3(input.tex_coords, input.layer));
+            }
+        "#,
     }
 }
