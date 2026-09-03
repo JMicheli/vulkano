@@ -14,3 +14,6 @@ doc = false
 [dependencies]
 vulkano = { workspace = true, default-features = true }
 vulkano-shaders = { workspace = true }
+
+[features]
+use-slang = []

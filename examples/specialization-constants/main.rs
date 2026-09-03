@@ -79,7 +79,8 @@ fn main() {
     .unwrap();
 
     let queue = queues.next().unwrap();
-
+    
+    #[cfg(not(feature = "use-slang"))]
     mod cs {
         vulkano_shaders::shader! {
             ty: "compute",
@@ -104,6 +105,36 @@ fn main() {
                     }
                 }
             ",
+        }
+    }
+
+    #[cfg(feature = "use-slang")]
+    mod cs {
+        vulkano_shaders::shader! {
+            ty: "compute",
+            lang: "slang",
+            src: r#"
+                [vk::constant_id(0)]
+                const int multiple = 64;
+                
+                [vk::constant_id(1)]
+                const float addend = 64;
+                
+                [vk::constant_id(2)]
+                const bool enable = true;
+                
+                RWStructuredBuffer<uint> data;
+                
+                [shader("compute")]
+                [numthreads(64, 1, 1)]
+                void main(uint3 dispatchThreadID : SV_DispatchThreadID) {
+                    uint idx = dispatchThreadID.x;
+                    if (enable) {
+                        data[idx] *= uint(multiple);
+                        data[idx] += uint(addend);
+                    }
+                }
+            "#,
         }
     }
 
