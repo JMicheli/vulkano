@@ -233,6 +233,11 @@ fn main() {
         // - `load_add` for the second shader loader/entry-point.
         // - `Parameters` struct common for both shaders.
 
+
+        // When compiling slang shaders, the `shader!` macro generates types with
+        // the memory layout qualifier appended to the end. I.e., `Parameters_std430`
+        // rather than just `Parameters`. This re-export avoids the need for conditional
+        // compilation on each use of `Parameters`.
         #[cfg(feature = "use-slang")]
         pub use Parameters_std430 as Parameters;
     }
