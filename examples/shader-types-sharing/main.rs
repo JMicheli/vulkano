@@ -96,8 +96,9 @@ fn main() {
     let queue = queues.next().unwrap();
 
     mod shaders {
+        #[cfg(not(feature = "use-slang"))]
         vulkano_shaders::shader! {
-            // We declaring two simple compute shaders with push and specialization constants in
+            // We declare two simple compute shaders with push and specialization constants in
             // their layout interfaces.
             //
             // First one is just multiplying each value from the input array of ints to provided
@@ -166,10 +167,74 @@ fn main() {
             },
         }
 
+        #[cfg(feature = "use-slang")]
+        vulkano_shaders::shader! {
+            lang: "slang",
+            shaders: {
+                mult: {
+                    ty: "compute",
+                    src: r#"
+                        struct Parameters {
+                            int value;
+                        };
+
+                        [[vk::push_constant]]
+                        Parameters pc;
+
+                        [[vk::binding(0, 0)]]
+                        RWStructuredBuffer<uint> data;
+
+                        [vk::constant_id(0)]
+                        const bool enabled = true;
+
+                        [shader("compute")]
+                        [numthreads(64, 1, 1)]
+                        void main(uint3 thread_id : SV_DispatchThreadID) {
+                            if (!enabled) {
+                                return;
+                            }
+                            uint idx = thread_id.x;
+                            data[idx] *= pc.value;
+                        }
+                    "#,
+                },
+                add: {
+                    ty: "compute",
+                    src: r#"
+                        struct Parameters {
+                            int value;
+                        };
+
+                        [[vk::push_constant]]
+                        Parameters pc;
+
+                        [[vk::binding(0, 0)]]
+                        RWStructuredBuffer<uint> data;
+
+                        [vk::constant_id(0)]
+                        const bool enabled = true;
+
+                        [shader("compute")]
+                        [numthreads(64, 1, 1)]
+                        void main(uint3 thread_id : SV_DispatchThreadID) {
+                            if (!enabled) {
+                                return;
+                            }
+                            uint idx = thread_id.x;
+                            data[idx] += pc.value;
+                        }
+                    "#,
+                },
+            },
+        }
+
         // The macro will create the following things in this module:
         // - `load_mult` for the first shader loader/entry-point.
         // - `load_add` for the second shader loader/entry-point.
         // - `Parameters` struct common for both shaders.
+
+        #[cfg(feature = "use-slang")]
+        pub use Parameters_std430 as Parameters;
     }
 
     /// We are introducing a generic function responsible for running any of the shaders above with
