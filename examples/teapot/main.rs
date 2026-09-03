@@ -84,7 +84,10 @@ struct RenderContext {
     vs: EntryPoint,
     fs: EntryPoint,
     pipeline: Arc<GraphicsPipeline>,
+    #[cfg(not(feature = "use-slang"))]
     uniform_buffers: Vec<Subbuffer<vs::Data>>,
+    #[cfg(feature = "use-slang")]
+    uniform_buffers: Vec<Subbuffer<vs::Data_std140>>,
     recreate_swapchain: bool,
     previous_frame_end: Option<Box<dyn GpuFuture>>,
     rotation_start: Instant,
@@ -422,11 +425,24 @@ impl ApplicationHandler for App {
                         Vec3::new(0.0, -1.0, 0.0),
                     );
                     let scale = Mat4::from_scale(Vec3::splat(0.01));
-
+                    
+                    #[cfg(not(feature = "use-slang"))]
                     let uniform_data = vs::Data {
                         world: Mat4::from_mat3(rotation).to_cols_array_2d(),
                         view: (view * scale).to_cols_array_2d(),
                         proj: proj.to_cols_array_2d(),
+                    };
+
+                    #[cfg(feature = "use-slang")]
+                    let uniform_data = {
+                        let world = Mat4::from_mat3(rotation);
+                        let view = view * scale;
+                        vs::Data_std140 {
+                            world: vs::__MatrixStorage_float4x4_ColMajorstd140 {data: world.to_cols_array_2d()},
+                            view: vs::__MatrixStorage_float4x4_ColMajorstd140 {data: view.to_cols_array_2d()},
+                            proj: vs::__MatrixStorage_float4x4_ColMajorstd140 {data: proj.to_cols_array_2d()},
+                            norm: vs::__MatrixStorage_float4x4_ColMajorstd140 {data: (view * world).inverse().transpose().to_cols_array_2d()},
+                        }
                     };
 
                     let buffer = rcx.uniform_buffers[image_index as usize].clone();
@@ -628,16 +644,35 @@ fn window_size_dependent_setup(
     (framebuffers, pipeline)
 }
 
+#[cfg(not(feature = "use-slang"))]
 mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
         path: "vert.glsl",
     }
 }
+#[cfg(feature = "use-slang")]
+mod vs {
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        lang: "slang",
+        path: "vert.slang",
+    }
+}
 
+#[cfg(not(feature = "use-slang"))]
 mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
         path: "frag.glsl",
     }
 }
+#[cfg(feature = "use-slang")]
+mod fs {
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        lang: "slang",
+        path: "frag.slang",
+    }
+}
+

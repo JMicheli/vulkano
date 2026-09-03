@@ -1,9 +1,20 @@
 use vulkano::{buffer::BufferContents, pipeline::graphics::vertex_input::Vertex};
 
+
+#[cfg(not(feature = "use-slang"))]
 #[derive(BufferContents, Vertex)]
 #[repr(C)]
 pub struct Position {
     #[format(R32G32B32_SFLOAT)]
+    position: [f32; 3],
+}
+
+#[cfg(feature = "use-slang")]
+#[derive(BufferContents, Vertex)]
+#[repr(C)]
+pub struct Position {
+    #[format(R32G32B32_SFLOAT)]
+    #[name("input.position")]
     position: [f32; 3],
 }
 
@@ -1604,10 +1615,20 @@ pub const POSITIONS: [Position; 531] = [
     },
 ];
 
+#[cfg(not(feature = "use-slang"))]
 #[derive(BufferContents, Vertex)]
 #[repr(C)]
 pub struct Normal {
     #[format(R32G32B32_SFLOAT)]
+    normal: [f32; 3],
+}
+
+#[cfg(feature = "use-slang")]
+#[derive(BufferContents, Vertex)]
+#[repr(C)]
+pub struct Normal {
+    #[format(R32G32B32_SFLOAT)]
+    #[name("input.normal")]
     normal: [f32; 3],
 }
 
