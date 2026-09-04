@@ -84,6 +84,7 @@ fn main() {
     let queue = queues.next().unwrap();
 
     let pipeline = {
+        #[cfg(not(feature = "use-slang"))]
         mod cs {
             vulkano_shaders::shader! {
                 ty: "compute",
@@ -101,6 +102,24 @@ fn main() {
                         data[idx] *= 12;
                     }
                 ",
+            }
+        }
+
+        #[cfg(feature = "use-slang")]
+        mod cs {
+            vulkano_shaders::shader! {
+                ty: "compute",
+                lang: "slang",
+                src: r#"
+                    RWStructuredBuffer<uint> data;
+
+                    [shader("compute")]
+                    [numthreads(64, 1, 1)]
+                    void main(uint3 thread_id : SV_DispatchThreadID) {
+                        uint idx = thread_id.x;
+                        data[idx] *= 12;
+                    }
+                "#,
             }
         }
 

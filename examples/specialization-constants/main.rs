@@ -127,8 +127,8 @@ fn main() {
                 
                 [shader("compute")]
                 [numthreads(64, 1, 1)]
-                void main(uint3 dispatchThreadID : SV_DispatchThreadID) {
-                    uint idx = dispatchThreadID.x;
+                void main(uint3 thread_id : SV_DispatchThreadID) {
+                    uint idx = thread_id.x;
                     if (enable) {
                         data[idx] *= uint(multiple);
                         data[idx] += uint(addend);
