@@ -307,6 +307,7 @@ impl ApplicationHandler for App {
                 ty: "vertex",
                 lang: "slang",
                 src: r#"
+                    [shader("vertex")
                     float4 main(
                         // The triangle vertex positions.
                         float2 position,
@@ -344,6 +345,7 @@ impl ApplicationHandler for App {
                 ty: "fragment",
                 lang: "slang",
                 src: r#"
+                    [shader("fragment")
                     float4 main() {
                         return float4(1.0, 0.0, 0.0, 1.0);
                     }

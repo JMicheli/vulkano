@@ -83,6 +83,7 @@ fn main() {
     let queue = queues.next().unwrap();
 
     mod cs {
+        #[cfg(not(feature= "use-slang"))]
         vulkano_shaders::shader! {
             ty: "compute",
             src: r"
@@ -109,6 +110,36 @@ fn main() {
                 }
             ",
         }
+
+        #[cfg(feature= "use-slang")]
+        vulkano_shaders::shader! {
+            ty: "compute",
+            lang: "slang",
+            src: r#"
+                struct PushConstantData {
+                    int multiple;
+                    float addend;
+                    bool enable;
+                };
+
+                [[vk::push_constant]]
+                PushConstantData pc;
+
+                RWStructuredBuffer<uint> data;
+
+                [shader("compute")]
+                [numthreads(64, 1, 1)]
+                void main(uint3 thread_id : SV_DispatchThreadID) {
+                    uint idx = thread_id.x;
+                    if (pc.enable) {
+                        data[idx] *= pc.multiple;
+                        data[idx] += uint(pc.addend);
+                    }
+                }
+            "#,
+        }
+
+        pub use PushConstantData_std430 as PushConstantData;
     }
 
     let pipeline = {
