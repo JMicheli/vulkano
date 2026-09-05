@@ -279,6 +279,7 @@ impl ApplicationHandler for App {
 
         let framebuffers = window_size_dependent_setup(&images, &render_pass);
 
+        #[cfg(not(feature = "use-slang"))]
         mod vs {
             vulkano_shaders::shader! {
                 ty: "vertex",
@@ -300,6 +301,28 @@ impl ApplicationHandler for App {
             }
         }
 
+        #[cfg(feature = "use-slang")]
+        mod vs {
+            vulkano_shaders::shader! {
+                ty: "vertex",
+                lang: "slang",
+                src: r#"
+                    float4 main(
+                        // The triangle vertex positions.
+                        float2 position,
+                        // The per-instance data.
+                        float2 position_offset,
+                        float scale
+                    ) : SV_Position {
+                        // Apply the scale and offset for the instance.
+                        return float4(position * scale + position_offset, 0.0, 1.0);
+                    }
+                "#,
+            }
+        }
+
+
+        #[cfg(not(feature = "use-slang"))]
         mod fs {
             vulkano_shaders::shader! {
                 ty: "fragment",
@@ -314,6 +337,20 @@ impl ApplicationHandler for App {
                 ",
             }
         }
+
+        #[cfg(feature = "use-slang")]
+        mod fs {
+            vulkano_shaders::shader! {
+                ty: "fragment",
+                lang: "slang",
+                src: r#"
+                    float4 main() {
+                        return float4(1.0, 0.0, 0.0, 1.0);
+                    }
+                "#,
+            }
+        }
+
 
         let pipeline = {
             let vs = unsafe { vs::load(&self.device) }
