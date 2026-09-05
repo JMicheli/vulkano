@@ -183,6 +183,7 @@ fn main() {
     // for vertex positions but in a VR application you could easily use it as an index to a
     // uniform array that contains the transformation matrices for the left and right eye.
     mod vs {
+        #[cfg(not(feature = "use-slang"))]
         vulkano_shaders::shader! {
             ty: "vertex",
             src: r"
@@ -196,9 +197,22 @@ fn main() {
                 }
             ",
         }
+
+        #[cfg(feature = "use-slang")]
+        vulkano_shaders::shader! {
+            ty: "vertex",
+            lang: "slang",
+            src: r#"
+                [shader("vertex")]
+                float4 main(float2 position, int view_idx : SV_ViewID) : SV_Position {
+                    return float4(position, 0.0, 1.0) + view_idx * float4(0.25, 0.25, 0.0, 0.0);
+                }
+            "#,
+        }
     }
 
     mod fs {
+        #[cfg(not(feature = "use-slang"))]
         vulkano_shaders::shader! {
             ty: "fragment",
             src: r"
@@ -210,6 +224,18 @@ fn main() {
                     f_color = vec4(1.0, 0.0, 0.0, 1.0);
                 }
             ",
+        }
+
+        #[cfg(feature = "use-slang")]
+        vulkano_shaders::shader! {
+            ty: "fragment",
+            lang: "slang",
+            src: r#"
+                [shader("fragment")]
+                float4 main() {
+                    return float4(1.0, 0.0, 0.0, 1.0);
+                }
+            "#,
         }
     }
 
