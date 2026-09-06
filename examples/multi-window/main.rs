@@ -281,6 +281,7 @@ impl App {
         .unwrap();
 
         mod vs {
+            #[cfg(not(feature = "use-slang"))]
             vulkano_shaders::shader! {
                 ty: "vertex",
                 src: r"
@@ -293,9 +294,22 @@ impl App {
                     }
                 ",
             }
+
+            #[cfg(feature = "use-slang")]
+            vulkano_shaders::shader! {
+                ty: "vertex",
+                lang: "slang",
+                src: r#"
+                    [shader("vertex")]
+                    float4 main(float2 position) : SV_Position {
+                        return float4(position, 0.0, 1.0);
+                    }
+                "#,
+            }
         }
 
         mod fs {
+            #[cfg(not(feature = "use-slang"))]
             vulkano_shaders::shader! {
                 ty: "fragment",
                 src: r"
@@ -307,6 +321,18 @@ impl App {
                         f_color = vec4(1.0, 0.0, 0.0, 1.0);
                     }
                 ",
+            }
+
+            #[cfg(feature = "use-slang")]
+            vulkano_shaders::shader! {
+                ty: "fragment",
+                lang: "slang",
+                src: r#"
+                    [shader("fragment")]
+                    float4 main() {
+                        return float4(1.0, 0.0, 0.0, 1.0);
+                    }
+                "#,
             }
         }
 
