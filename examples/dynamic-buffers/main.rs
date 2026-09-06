@@ -91,6 +91,7 @@ fn main() {
     let queue = queues.next().unwrap();
 
     mod cs {
+        #[cfg(not(feature = "use-slang"))]
         vulkano_shaders::shader! {
             ty: "compute",
             src: r"
@@ -117,6 +118,37 @@ fn main() {
                 }
             ",
         }
+
+        #[cfg(feature = "use-slang")]
+        vulkano_shaders::shader! {
+            ty: "compute",
+            lang: "slang",
+            src: r#"
+                struct InData {
+                    uint index;
+                };
+
+                [[vk::binding(0, 0)]] 
+                ConstantBuffer<InData> ub;
+
+                [[vk::binding(1, 0)]] 
+                RWStructuredBuffer<uint> data;
+
+                // Toy shader that only runs for the index specified in `ub`.
+                [shader("compute")]
+                [numthreads(12, 1, 1)]
+                void main(uint3 dispatchThreadID : SV_DispatchThreadID) {
+                    uint index = dispatchThreadID.x;
+                    
+                    if (index == ub.index) {
+                        data[index] = index;
+                    }
+                }
+            "#,
+        }
+
+        #[cfg(feature = "use-slang")]
+        pub use InData_std140 as InData;
     }
 
     let pipeline = {
