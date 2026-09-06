@@ -260,11 +260,12 @@ fn main() {
         vulkano_shaders::shader! {
             ty: "vertex",
             lang: "slang",
-            src: r"
+            src: r#"
+                [shader("vertex")]
                 float4 main(float2 position) : SV_Position {
                     return float4(position, 0.0, 1.0);
                 }
-            ",
+            "#,
         }
     }
 
@@ -287,11 +288,12 @@ fn main() {
         vulkano_shaders::shader! {
             ty: "fragment",
             lang: "slang",
-            src: r"
-                float4 main() {
+            src: r#"
+                [shader("fragment")]
+                float4 main() : SV_Target {
                     return float4(1.0, 0.0, 0.0, 1.0);
                 }
-            ",
+            "#,
         }
     }
 

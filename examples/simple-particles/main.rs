@@ -365,8 +365,9 @@ impl ApplicationHandler for App {
 
         // The vertex shader determines color and is run once per particle. The vertices will be
         // updated by the compute shader each frame.
-        #[cfg(not(feature = "use-slang"))]
+        
         mod vs {
+            #[cfg(not(feature = "use-slang"))]
             vulkano_shaders::shader! {
                 ty: "vertex",
                 src: r"
@@ -393,10 +394,8 @@ impl ApplicationHandler for App {
                     }
                 ",
             }
-        }
 
-        #[cfg(feature = "use-slang")]
-        mod vs {
+            #[cfg(feature = "use-slang")]
             vulkano_shaders::shader! {
                 ty: "vertex",
                 lang: "slang",
@@ -433,8 +432,8 @@ impl ApplicationHandler for App {
 
         // The fragment shader will only need to apply the color forwarded by the vertex shader,
         // because the color of a particle should be identical over all pixels.
-        #[cfg(not(feature = "use-slang"))]
         mod fs {
+            #[cfg(not(feature = "use-slang"))]
             vulkano_shaders::shader! {
                 ty: "fragment",
                 src: r"
@@ -448,11 +447,9 @@ impl ApplicationHandler for App {
                         fragColor = outColor;
                         }
                         ",
-                    }
-                }
-                
-        #[cfg(feature = "use-slang")]
-        mod fs {
+            }
+
+            #[cfg(feature = "use-slang")]
             vulkano_shaders::shader! {
                 ty: "fragment",
                 lang: "slang",
@@ -562,14 +559,7 @@ impl ApplicationHandler for App {
                 rcx.last_frame_time = now;
 
                 // Create push constants to be passed to compute shader.
-                #[cfg(not(feature = "use-slang"))]
                 let push_constants = cs::PushConstants {
-                    attractor: [0.75 * (3. * time).cos(), 0.6 * (0.75 * time).sin()],
-                    attractor_strength: 1.2 * (2. * time).cos(),
-                    delta_time,
-                };
-                #[cfg(feature = "use-slang")]
-                let push_constants = cs::PushConstants_std430 {
                     attractor: [0.75 * (3. * time).cos(), 0.6 * (0.75 * time).sin()],
                     attractor_strength: 1.2 * (2. * time).cos(),
                     delta_time,
@@ -675,8 +665,8 @@ struct MyVertex {
 }
 
 // Compute shader for updating the position and velocity of each particle every frame.
-#[cfg(not(feature = "use-slang"))]
 mod cs {
+    #[cfg(not(feature = "use-slang"))] 
     vulkano_shaders::shader! {
         ty: "compute",
         src: r"
@@ -746,10 +736,8 @@ mod cs {
             }
         ",
     }
-}
 
-#[cfg(feature = "use-slang")]
-mod cs {
+    #[cfg(feature = "use-slang")]
     vulkano_shaders::shader! {
         ty: "compute",
         lang: "slang",
@@ -819,4 +807,7 @@ mod cs {
             }
         "#,
     }
+
+    #[cfg(feature = "use-slang")]
+    pub use PushConstants_std430 as PushConstants;
 }

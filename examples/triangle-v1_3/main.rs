@@ -385,8 +385,8 @@ impl ApplicationHandler for App {
         //
         // A more detailed overview of what the `shader!` macro generates can be found in the
         // vulkano-shaders crate docs. You can view them at https://docs.rs/vulkano-shaders/
-        #[cfg(not(feature = "use-slang"))]
         mod vs {
+            #[cfg(not(feature = "use-slang"))]
             vulkano_shaders::shader! {
                 ty: "vertex",
                 src: r"
@@ -399,11 +399,10 @@ impl ApplicationHandler for App {
                     }
                 ",
             }
-        }
-        // Vulkano also supports the use of Slang if `lang: "slang"` is set.
-        // Slang code must have an entrypoint named `main`.  
-        #[cfg(feature = "use-slang")]
-        mod vs {
+
+            // Vulkano also supports the use of Slang if `lang: "slang"` is set.
+            // Slang code must have an entrypoint named `main`.  
+            #[cfg(feature = "use-slang")]
             vulkano_shaders::shader! {
                 ty: "vertex",
                 lang: "slang",
@@ -417,8 +416,8 @@ impl ApplicationHandler for App {
         }
 
 
-        #[cfg(not(feature = "use-slang"))]
         mod fs {
+            #[cfg(not(feature = "use-slang"))]
             vulkano_shaders::shader! {
                 ty: "fragment",
                 src: r"
@@ -431,9 +430,8 @@ impl ApplicationHandler for App {
                     }
                 ",
             }
-        }
-        #[cfg(feature = "use-slang")]
-        mod fs {
+
+            #[cfg(feature = "use-slang")]
             vulkano_shaders::shader! {
                 ty: "fragment",
                 lang: "slang",
