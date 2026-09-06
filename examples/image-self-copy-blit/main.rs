@@ -659,6 +659,7 @@ mod vs {
                 float2 tex_coords;
             };
 
+            [shader("vertex")]
             VSOutput main(float2 position) {
                 VSOutput output;
 

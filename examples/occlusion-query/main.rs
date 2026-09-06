@@ -310,6 +310,7 @@ impl ApplicationHandler for App {
             window_size_dependent_setup(&images, &render_pass, &self.memory_allocator);
 
         mod vs {
+            #[cfg(not(feature = "use-slang"))]
             vulkano_shaders::shader! {
                 ty: "vertex",
                 src: r"
@@ -326,9 +327,31 @@ impl ApplicationHandler for App {
                     }
                 ",
             }
+
+            #[cfg(feature = "use-slang")]
+            vulkano_shaders::shader! {
+                ty: "vertex",
+                lang: "slang",
+                src: r#"
+                    struct VSOutput {
+                        float4 position : SV_Position;
+                        float3 v_color;
+                    };
+
+                    [shader("vertex")]
+                    VSOutput main(float3 position, float3 color) {
+                        VSOutput output;
+
+                        output.v_color = color;
+                        output.position = float4(position, 1.0);
+                        return output;
+                    }
+                "#,
+            }
         }
 
         mod fs {
+            #[cfg(not(feature = "use-slang"))]
             vulkano_shaders::shader! {
                 ty: "fragment",
                 src: r"
@@ -341,6 +364,18 @@ impl ApplicationHandler for App {
                         f_color = vec4(v_color, 1.0);
                     }
                 ",
+            }
+
+            #[cfg(feature = "use-slang")]
+            vulkano_shaders::shader! {
+                ty: "fragment",
+                lang: "slang",
+                src: r#"
+                    [shader("fragment")]
+                    float4 main(float3 v_color) {
+                        return float4(v_color, 1.0);
+                    }
+                "#,
             }
         }
 
