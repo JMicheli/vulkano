@@ -172,6 +172,7 @@ impl PixelsDrawPipeline {
 }
 
 mod vs {
+    #[cfg(not(feature = "use-slang"))]
     vulkano_shaders::shader! {
         ty: "vertex",
         src: r"
@@ -203,9 +204,49 @@ mod vs {
             }
         ",
     }
+
+    #[cfg(feature = "use-slang")]
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        lang: "slang",
+        src: r#"
+            static const float2[6] POSITIONS = {
+                float2(-1.0, -1.0),
+                float2( 1.0,  1.0),
+                float2(-1.0,  1.0),
+                float2(-1.0, -1.0),
+                float2( 1.0, -1.0),
+                float2( 1.0,  1.0),
+            };
+
+            static const float2[6] TEX_COORDS = {
+                float2(0.0, 1.0),
+                float2(1.0, 0.0),
+                float2(0.0, 0.0),
+                float2(0.0, 1.0),
+                float2(1.0, 1.0),
+                float2(1.0, 0.0),
+            };
+
+            struct VSOutput {
+                float4 position : SV_Position;
+                float2 f_tex_coords;
+            };
+
+            [shader("vertex")]
+            VSOutput main(int vertex_idx : SV_VertexID) {
+                VSOutput output;
+
+                output.position = float4(POSITIONS[vertex_idx], 0.0, 1.0);
+                output.f_tex_coords = TEX_COORDS[vertex_idx];
+                return output;
+            }
+        "#,
+    }
 }
 
 mod fs {
+    #[cfg(not(feature = "use-slang"))]
     vulkano_shaders::shader! {
         ty: "fragment",
         src: r"
@@ -221,5 +262,20 @@ mod fs {
                 f_color = texture(sampler2D(tex, s), v_tex_coords);
             }
         ",
+    }
+
+    #[cfg(feature = "use-slang")]
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        lang: "slang",
+        src: r#"
+            SamplerState s;
+            Texture2D tex;
+
+            [shader("fragment")]
+            float4 main(float2 v_tex_coords) : SV_Target {
+                return tex.Sample(s, v_tex_coords);
+            }
+        "#,
     }
 }

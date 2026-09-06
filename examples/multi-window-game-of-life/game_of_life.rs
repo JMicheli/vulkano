@@ -222,6 +222,7 @@ impl GameOfLifeComputePipeline {
 }
 
 mod compute_life_cs {
+    #[cfg(not(feature = "use-slang"))]
     vulkano_shaders::shader! {
         ty: "compute",
         src: r"
@@ -301,4 +302,97 @@ mod compute_life_cs {
             }
         ",
     }
+
+    #[cfg(feature = "use-slang")]
+    vulkano_shaders::shader! {
+        ty: "compute",
+        lang: "slang",
+        src: r#"
+            struct PushConstants {
+                float4 life_color;
+                float4 dead_color;
+                int step;
+            };
+
+            [[vk::binding(0, 0)]]
+            [format("rgba8")]
+            RWTexture2D<float4> img;
+
+            [[vk::binding(1, 0)]]
+            StructuredBuffer<uint> life_in;
+
+            [[vk::binding(2, 0)]]
+            RWStructuredBuffer<uint> life_out;
+
+            [[vk::push_constant]]
+            PushConstants push_constants;
+
+            int get_index(int2 pos) {
+                uint width, height;
+                img.GetDimensions(width, height);
+                int2 dims = int2(width, height);
+                return pos.y * dims.x + pos.x;
+            }
+
+            // https://en.wikipedia.org/wiki/Conway%27s_Game_of_Life
+            void compute_life(uint3 thread_id) {
+                int2 pos = int2(thread_id.xy);
+                int index = get_index(pos);
+
+                int2 up_left = pos + int2(-1, 1);
+                int2 up = pos + int2(0, 1);
+                int2 up_right = pos + int2(1, 1);
+                int2 right = pos + int2(1, 0);
+                int2 down_right = pos + int2(1, -1);
+                int2 down = pos + int2(0, -1);
+                int2 down_left = pos + int2(-1, -1);
+                int2 left = pos + int2(-1, 0);
+
+                int alive_count = 0;
+                if (life_in[get_index(up_left)] == 1) { alive_count += 1; }
+                if (life_in[get_index(up)] == 1) { alive_count += 1; }
+                if (life_in[get_index(up_right)] == 1) { alive_count += 1; }
+                if (life_in[get_index(right)] == 1) { alive_count += 1; }
+                if (life_in[get_index(down_right)] == 1) { alive_count += 1; }
+                if (life_in[get_index(down)] == 1) { alive_count += 1; }
+                if (life_in[get_index(down_left)] == 1) { alive_count += 1; }
+                if (life_in[get_index(left)] == 1) { alive_count += 1; }
+
+                // Dead becomes alive.
+                if (life_in[index] == 0 && alive_count == 3) {
+                    life_out[index] = 1;
+                }
+                // Becomes dead.
+                else if (life_in[index] == 1 && alive_count < 2 || alive_count > 3) {
+                    life_out[index] = 0;
+                }
+                // Else do nothing.
+                else {
+                    life_out[index] = life_in[index];
+                }
+            }
+
+            void compute_color(uint3 thread_id) {
+                int2 pos = int2(thread_id.xy);
+                int index = get_index(pos);
+                if (life_out[index] == 1) {
+                    img[pos] = push_constants.life_color;
+                } else {
+                    img[pos] = push_constants.dead_color;
+                }
+            }
+
+            [shader("compute")]
+            [numthreads(8, 8, 1)]
+            void main(uint3 thread_id : SV_DispatchThreadID) {
+                if (push_constants.step == 0) {
+                    compute_life(thread_id);
+                } else {
+                    compute_color(thread_id);
+                }
+            }
+        "#,
+    }
+
+    pub use PushConstants_std430 as PushConstants;
 }
