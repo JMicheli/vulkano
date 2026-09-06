@@ -172,6 +172,7 @@ impl App {
         // where we output the vertices, the second is the `IndirectDrawArgs` struct we passed the
         // `draw_indirect` so we can set the number to vertices to draw.
         mod cs {
+            #[cfg(not(feature = "use-slang"))]
             vulkano_shaders::shader! {
                 ty: "compute",
                 src: r"
@@ -196,7 +197,7 @@ impl App {
                         // Each invocation of the compute shader is going to increment the counter,
                         // so we need to use atomic operations for safety. The previous value of
                         // the counter is returned so that gives us the offset into the vertex
-                        // buffer this thread can write it's vertices into.
+                        // buffer this thread can write its vertices into.
                         uint offset = atomicAdd(vertices, 6);
 
                         vec2 center = vec2(-0.8, -0.8) + idx * vec2(0.1, 0.1);
@@ -208,6 +209,50 @@ impl App {
                         triangles.pos[offset + 5] = center + vec2(-0.025, 0.01725);
                     }
                 ",
+            }
+
+            #[cfg(feature = "use-slang")]
+            vulkano_shaders::shader! {
+                ty: "compute",
+                lang: "slang",
+                src: r#"
+                    struct Output {
+                        float2 pos[];
+                    };
+
+                    struct IndirectDrawArgs {
+                        uint vertices;
+                        uint unused0;
+                        uint unused1;
+                        uint unused2;
+                    };
+
+                    [[vk::binding(0, 0)]] 
+                    RWStructuredBuffer<float2> triangles;
+                    [[vk::binding(1, 0)]] 
+                    RWStructuredBuffer<IndirectDrawArgs> args;
+                    
+                    [shader("compute")]
+                    [numthreads(16, 1, 1)]
+                    void main(uint3 thread_id : SV_DispatchThreadID) {
+                        uint idx = thread_id.x;
+
+                        // Each invocation of the compute shader is going to increment the counter,
+                        // so we need to use atomic operations for safety. The previous value of
+                        // the counter is returned so that gives us the offset into the vertex
+                        // buffer this thread can write its vertices into.
+                        InterlockedAdd(args[0].vertices, 6);
+                        uint offset = args[0].vertices;
+
+                        float2 center = float2(-0.8, -0.8) + idx * float2(0.1, 0.1);
+                        triangles[offset + 0] = center + float2(0.0, 0.0375);
+                        triangles[offset + 1] = center + float2(0.025, -0.01725);
+                        triangles[offset + 2] = center + float2(-0.025, -0.01725);
+                        triangles[offset + 3] = center + float2(0.0, -0.0375);
+                        triangles[offset + 4] = center + float2(0.025, 0.01725);
+                        triangles[offset + 5] = center + float2(-0.025, 0.01725);
+                    }
+                "#,
             }
         }
 
@@ -301,6 +346,7 @@ impl ApplicationHandler for App {
         let framebuffers = window_size_dependent_setup(&images, &render_pass);
 
         mod vs {
+            #[cfg(not(feature = "use-slang"))]
             vulkano_shaders::shader! {
                 ty: "vertex",
                 src: r"
@@ -314,9 +360,22 @@ impl ApplicationHandler for App {
                     }
                 ",
             }
+
+            #[cfg(feature = "use-slang")]
+            vulkano_shaders::shader! {
+                ty: "vertex",
+                lang: "slang",
+                src: r#"
+                    [shader("vertex")]
+                    float4 main(float2 position) : SV_Position {
+                        return float4(position, 0.0, 1.0);
+                    }
+                "#,
+            }
         }
 
         mod fs {
+            #[cfg(not(feature = "use-slang"))]
             vulkano_shaders::shader! {
                 ty: "fragment",
                 src: r"
@@ -328,6 +387,18 @@ impl ApplicationHandler for App {
                         f_color = vec4(1.0, 0.0, 0.0, 1.0);
                     }
                 ",
+            }
+
+            #[cfg(feature = "use-slang")]
+            vulkano_shaders::shader! {
+                ty: "fragment",
+                lang: "slang",
+                src: r#"
+                    [shader("fragment")]
+                    float4 main() : SV_Target {
+                        return float4(1.0, 0.0, 0.0, 1.0);
+                    }
+                "#,
             }
         }
 
