@@ -139,6 +139,7 @@ fn main() {
             "#,
         }
 
+        #[cfg(feature= "use-slang")]
         pub use PushConstantData_std430 as PushConstantData;
     }
 

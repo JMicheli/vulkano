@@ -394,5 +394,6 @@ mod compute_life_cs {
         "#,
     }
 
+    #[cfg(feature = "use-slang")]
     pub use PushConstants_std430 as PushConstants;
 }
