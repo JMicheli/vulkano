@@ -633,6 +633,7 @@ fn window_size_dependent_setup(
 }
 
 mod vs {
+    #[cfg(not(feature = "use-slang"))]
     vulkano_shaders::shader! {
         ty: "vertex",
         src: r"
@@ -647,9 +648,30 @@ mod vs {
             }
         ",
     }
+
+    #[cfg(feature = "use-slang")]
+    vulkano_shaders::shader! {
+        ty: "vertex",
+        lang: "slang",
+        src: r#"
+            struct VSOutput {
+                float4 position : SV_Position;
+                float2 tex_coords;
+            };
+
+            VSOutput main(float2 position) {
+                VSOutput output;
+
+                output.position = float4(position, 0.0, 1.0);
+                output.tex_coords = position + float2(0.5);
+                return output;
+            }
+        "#,
+    }
 }
 
 mod fs {
+    #[cfg(not(feature = "use-slang"))]
     vulkano_shaders::shader! {
         ty: "fragment",
         src: r"
@@ -665,5 +687,20 @@ mod fs {
                 f_color = texture(sampler2D(tex, s), tex_coords);
             }
         ",
+    }
+
+    #[cfg(feature = "use-slang")]
+    vulkano_shaders::shader! {
+        ty: "fragment",
+        lang: "slang",
+        src: r#"
+            SamplerState s;
+            Texture2D tex;
+
+            [shader("fragment")]
+            float4 main(float2 tex_coords) {
+                return tex.Sample(s, tex_coords);
+            }
+        "#,
     }
 }

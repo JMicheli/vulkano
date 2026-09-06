@@ -80,8 +80,8 @@ fn main() {
 
     let queue = queues.next().unwrap();
     
-    #[cfg(not(feature = "use-slang"))]
     mod cs {
+        #[cfg(not(feature = "use-slang"))]
         vulkano_shaders::shader! {
             ty: "compute",
             src: r"
@@ -106,10 +106,8 @@ fn main() {
                 }
             ",
         }
-    }
 
-    #[cfg(feature = "use-slang")]
-    mod cs {
+        #[cfg(feature = "use-slang")]
         vulkano_shaders::shader! {
             ty: "compute",
             lang: "slang",
