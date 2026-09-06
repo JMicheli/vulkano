@@ -106,6 +106,7 @@ fn main() {
     // `build_with_cache(cache: Arc<PipelineCache>)`.
     let _pipeline = {
         mod cs {
+            #[cfg(not(feature = "use-slang"))]
             vulkano_shaders::shader! {
                 ty: "compute",
                 src: r"
@@ -122,6 +123,22 @@ fn main() {
                         data[idx] *= 12;
                     }
                 ",
+            }
+
+            #[cfg(feature = "use-slang")]
+            vulkano_shaders::shader! {
+                ty: "compute",
+                lang: "slang",
+                src: r#"
+                    RWStructuredBuffer<uint> data;
+
+                    [shader("compute")]
+                    [numthreads(64, 1, 1)]
+                    void main(uint3 thread_id : SV_DispatchThreadID) {
+                        uint idx = thread_id.x;
+                        data[idx] *= 12;
+                    }
+                "#,
             }
         }
         let cs = unsafe { cs::load(&device) }
